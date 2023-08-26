@@ -1,71 +1,17 @@
-use std::{fs, io, io::{Read, BufReader, BufRead}, str, process::{Command, Stdio}};
+use std::{fs, io, io::{BufReader, BufRead}, process::{Command, Stdio, Child}};
 use is_executable::IsExecutable;
-use inquire::{error::InquireError, Select};
+use inquire::{MultiSelect, Select};
 
-fn read_and_print_file() {
-    let greeting_file_result = fs::File::open("Cargo.toml");
-
-    let mut greeting_file = match greeting_file_result {
-        Ok(file) => file,
-        Err(error) => panic!("Problem opening the file: {:?}", error),
-    };
-
-    let mut buffer = Vec::new();
-    greeting_file.read_to_end(&mut buffer).expect("Failed to read file");
-    
-    let s = match str::from_utf8(&buffer) {
-        Ok(v) => v,
-        Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
-    };
-
-    println!("result: {}", s);
-}
-
-fn main() {
-    let entries = fs::read_dir(".").expect("Failed to read dir");
-
-    let mut executables = Vec::new();
-    for entry in entries {
-        let dir_entry = entry.expect("Failed to read directory entry");
-        let path = dir_entry.path();
-        // println!("{:?}: {:?}", path, path.is_executable());
-
-        if path.is_executable() {
-            if let Some(path_string) = path.to_str(){
-                executables.push(path_string.to_owned());
-            }
-        }
-
-        // if let Ok(entry) = entry {
-        //     // Here, `entry` is a `DirEntry`.
-        //     if let Ok(metadata) = entry.metadata() {
-        //         // Now let's show our entry's permissions!
-        //         println!("{:?}: {:?}", entry.path(), metadata.permissions());
-        //     } else {
-        //         println!("Couldn't get metadata for {:?}", entry.path());
-        //     }
-        // }
-    }
-
-    // for (i, executable) in executables.iter().enumerate() {
-    //     println!("{}) {:?}", i, executable);
-    // }
-
-    let ans: Result<String, InquireError> = Select::new("Which executable would you like to execute?", executables).prompt();
-
-    let executable;
-    match ans {
-        Ok(choice) => executable = choice,
-        Err(_) => panic!("An error occured..."),
-    }
-
-    let mut child = Command::new("bash")
+fn run_executable(executable: &String) -> Result<Child, io::Error> {
+    let child = Command::new("bash")
         .arg("-e")
         .arg(executable)
         .stdout(Stdio::piped())
-        .spawn()
-        .expect("Failed to run the executable");
+        .spawn();
+    child
+}
 
+fn show_stdout_of_child(mut child: Child) {
     if let Some(stdout) = child.stdout.take() {
         let mut bufread = BufReader::new(stdout);
         let mut buf = String::new();
@@ -79,14 +25,63 @@ fn main() {
                     Ok(Some(_)) => break,
                     Ok(None) => continue,
                     Err(err) => {
-                        println!("Child process errord with {}", err);
+                        println!("Something went wrong: {}", err);
                         break;
                     }
                 }
             }
         }
-
     } else {
-        panic!("Could not take the stdout");
+        println!("Something went wrong when getting stdout");
+    }
+}
+
+fn main() {
+    let entries = fs::read_dir(".").expect("Failed to read dir");
+
+    let mut executables = Vec::new();
+    for entry in entries {
+        let dir_entry = entry.expect("Failed to read directory entry");
+        let path = dir_entry.path();
+
+        if path.is_executable() {
+            if let Some(path_string) = path.to_str(){
+                executables.push(path_string.to_owned());
+            }
+        }
+
+    }
+
+    let mut selector = MultiSelect::new("Which executable(s) would you like to launch?", executables);
+    selector.vim_mode = true;
+
+    let executables = match selector.prompt() {
+        Ok(selection) => selection,
+        Err(_) => panic!("Something went wrong in the selection"),
+    };
+
+    let mut children = Vec::new();
+    let mut running_executables = Vec::new();
+    for executable in executables {
+        match run_executable(&executable){
+            Ok(child) => {
+                children.push(child);
+                running_executables.push(executable.clone());
+            },
+            Err(_) => continue,
+        }
+    }
+
+    let mut selector = Select::new("From which process would you like to see the stdout", running_executables.clone());
+    selector.vim_mode = true;
+
+    let selection = match selector.prompt() {
+        Ok(selection) => selection,
+        Err(_) => panic!("Something went wrong in the selection"),
+    };
+
+    if let Some(index) = running_executables.iter().position(|exe| exe == &selection) {
+        let child = children.swap_remove(index);
+        show_stdout_of_child(child);
     }
 }
