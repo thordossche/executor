@@ -1,2 +1,14 @@
 #!/bin/bash
-echo Hello World!
+
+i=1000
+while true
+do
+    echo "$i"
+    i=$((i+1))
+    
+    if (( $i > 1010 )); then
+        exit 0
+    fi
+    sleep 1
+
+done
