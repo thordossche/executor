@@ -1,5 +1,6 @@
 use std::{fs, io, io::{Read, BufReader, BufRead}, str, process::{Command, Stdio}};
 use is_executable::IsExecutable;
+use inquire::{error::InquireError, Select};
 
 fn read_and_print_file() {
     let greeting_file_result = fs::File::open("Cargo.toml");
@@ -21,9 +22,6 @@ fn read_and_print_file() {
 }
 
 fn main() {
-
-    println!("====================");
-
     let entries = fs::read_dir(".").expect("Failed to read dir");
 
     let mut executables = Vec::new();
@@ -33,7 +31,9 @@ fn main() {
         // println!("{:?}: {:?}", path, path.is_executable());
 
         if path.is_executable() {
-            executables.push(path);
+            if let Some(path_string) = path.to_str(){
+                executables.push(path_string.to_owned());
+            }
         }
 
         // if let Ok(entry) = entry {
@@ -47,22 +47,17 @@ fn main() {
         // }
     }
 
-    for (i, executable) in executables.iter().enumerate() {
-        println!("{}) {:?}", i, executable);
+    // for (i, executable) in executables.iter().enumerate() {
+    //     println!("{}) {:?}", i, executable);
+    // }
+
+    let ans: Result<String, InquireError> = Select::new("Which executable would you like to execute?", executables).prompt();
+
+    let executable;
+    match ans {
+        Ok(choice) => executable = choice,
+        Err(_) => panic!("An error occured..."),
     }
-
-    let mut buffer = String::new();
-    io::stdin().read_line(&mut buffer).expect("Failed while reading input from stdin.");
-
-    let executable_index: usize = buffer.trim().parse().expect("Input was not an integer");
-    
-    if executable_index >= executables.len() {
-        panic!("'{}' is not a valid executable index.", executable_index);
-    }
-
-    let executable = &executables[executable_index];
-    println!("You selected executable: {:?}", executable);
-
 
     let mut child = Command::new("bash")
         .arg("-e")
@@ -70,14 +65,6 @@ fn main() {
         .stdout(Stdio::piped())
         .spawn()
         .expect("Failed to run the executable");
-
-
-
-    // let stdout; 
-    // match process_output.stdout.take() {
-    //     Some(val) => stdout = val,
-    //     None => panic!("Could not take the stdout"),
-    // };
 
     if let Some(stdout) = child.stdout.take() {
         let mut bufread = BufReader::new(stdout);
@@ -102,17 +89,4 @@ fn main() {
     } else {
         panic!("Could not take the stdout");
     }
-
-
-
-
-    // let result = output.stdout;
-    // let s = match str::from_utf8(&result) {
-    //     Ok(v) => v,
-    //     Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
-    // };
-
-    // println!("{}", s);
-
-
 }
